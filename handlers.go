@@ -130,18 +130,18 @@ func onText(ctx context.Context, bot *BotAPI, msg *Message) error {
 	}
 
 	// Acknowledge the link: react 👀 on the user's message, then show a
-	// "searching" sticker while the metadata loads.
+	// "searching" sticker that stays up until the result is ready.
 	if msg.MessageID != 0 {
 		if err := bot.SetMessageReaction(ctx, msg.Chat.ID, msg.MessageID, emojiEyes); err != nil {
 			log.Printf("set reaction failed: %v", err)
 		}
 	}
-	bot.sendStickerOrEmoji(ctx, msg.Chat.ID, stickerPackFull, emojiSearch)
+	searchStickerID := bot.sendStickerOrEmojiReturning(ctx, msg.Chat.ID, stickerPackFull, emojiSearch)
 
 	info, err := FetchVideoInfo(ctx, bot.cfg, text)
 	if err != nil {
 		log.Printf("fetch video info failed: %v", err)
-		bot.sendStickerOrEmoji(ctx, msg.Chat.ID, stickerPackFull, emojiSearch)
+		bot.deleteMessageBestEffort(ctx, msg.Chat.ID, searchStickerID)
 		return bot.SendMessage(ctx, msg.Chat.ID, bot.localizer.T(lang, "metadata_failed"), nil)
 	}
 
@@ -151,12 +151,15 @@ func onText(ctx context.Context, bot *BotAPI, msg *Message) error {
 
 	if info.Thumbnail != "" {
 		if err := bot.SendPhoto(ctx, msg.Chat.ID, info.Thumbnail, caption, markup); err == nil {
+			bot.deleteMessageBestEffort(ctx, msg.Chat.ID, searchStickerID)
 			return nil
 		}
 		log.Printf("send photo metadata failed, falling back to message")
 	}
 
-	return bot.SendMessage(ctx, msg.Chat.ID, caption+"\n\n"+bot.localizer.T(lang, "quality_prompt"), markup)
+	sendErr := bot.SendMessage(ctx, msg.Chat.ID, caption+"\n\n"+bot.localizer.T(lang, "quality_prompt"), markup)
+	bot.deleteMessageBestEffort(ctx, msg.Chat.ID, searchStickerID)
+	return sendErr
 }
 
 func qualityKeyboard(l *Localizer, lang string, options []DownloadOption) *InlineKeyboardMarkup {
