@@ -157,6 +157,13 @@ func buildInfoArgs(extras ...string) []string {
 		"--dump-json",
 		"--no-playlist",
 		"--skip-download",
+		// Still emit the metadata JSON (title, duration, thumbnail) when no
+		// downloadable format can be resolved — e.g. when YouTube's "n" signature
+		// challenge cannot be solved without a JS runtime. Without this, yt-dlp
+		// aborts with "Requested format is not available" and we get nothing back
+		// even though the preview metadata is available. The actual format
+		// selection happens later in the GitHub Actions downloader.
+		"--ignore-no-formats-error",
 		"--extractor-retries", "3",
 		"--retry-sleep", "extractor:3",
 		"--socket-timeout", "20",
