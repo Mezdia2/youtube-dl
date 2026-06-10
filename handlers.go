@@ -259,6 +259,10 @@ func onQualitySelect(ctx context.Context, bot *BotAPI, callback *CallbackQuery) 
 
 	DelSession(chatID)
 
+	// The quality menu has served its purpose; remove it so only the download
+	// status remains for this step.
+	bot.deleteMessageBestEffort(ctx, chatID, callback.Message.MessageID)
+
 	log.Printf("workflow triggered: format=%s quality=%s chatID=%s username=%s",
 		formatType, quality, chatIDStr, username)
 
