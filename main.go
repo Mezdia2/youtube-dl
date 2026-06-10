@@ -21,6 +21,7 @@ type BotAPI struct {
 	cfg       *Config
 	store     *Store
 	localizer *Localizer
+	stickers  *stickerManager
 }
 
 type Update struct {
@@ -121,6 +122,7 @@ func runBot() error {
 		cfg:       cfg,
 		store:     store,
 		localizer: localizer,
+		stickers:  newStickerManager(),
 	}
 
 	webhookURL, err := cfg.WebhookURL()
@@ -243,6 +245,13 @@ func (b *BotAPI) HandleUpdate(ctx context.Context, update Update) error {
 		return nil
 	}
 
+	// In groups the bot only engages when a YouTube link is present; other
+	// chatter (including commands and the language prompt) is ignored to avoid
+	// spamming the group. Private chats always engage.
+	if update.Message.Chat.Type != "private" && !isYouTubeURL(update.Message.Text) {
+		return nil
+	}
+
 	userID := update.Message.Chat.ID
 	if update.Message.From != nil {
 		userID = update.Message.From.ID
@@ -294,6 +303,26 @@ func (b *BotAPI) SendPhoto(ctx context.Context, chatID int64, photo, caption str
 		payload["reply_markup"] = markup
 	}
 	return b.Call(ctx, "sendPhoto", payload, nil)
+}
+
+func (b *BotAPI) SendSticker(ctx context.Context, chatID int64, fileID string) error {
+	return b.Call(ctx, "sendSticker", map[string]any{
+		"chat_id": chatID,
+		"sticker": fileID,
+	}, nil)
+}
+
+// SetMessageReaction places a single emoji reaction on a message. Only emojis
+// from Telegram's fixed reaction set are accepted (e.g. 👀); others are rejected
+// by the API, so callers should use it only for known-valid reaction emojis.
+func (b *BotAPI) SetMessageReaction(ctx context.Context, chatID, messageID int64, emoji string) error {
+	return b.Call(ctx, "setMessageReaction", map[string]any{
+		"chat_id":    chatID,
+		"message_id": messageID,
+		"reaction": []map[string]any{
+			{"type": "emoji", "emoji": emoji},
+		},
+	}, nil)
 }
 
 func (b *BotAPI) AnswerCallback(ctx context.Context, callbackID string) error {
