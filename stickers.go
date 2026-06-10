@@ -130,16 +130,26 @@ func (b *BotAPI) StickerFor(ctx context.Context, pack, emoji string) (string, bo
 // sendStickerOrEmoji sends a matching sticker from pack; if the pack has none,
 // it sends the emoji itself as a text message. Failures are logged, never fatal.
 func (b *BotAPI) sendStickerOrEmoji(ctx context.Context, chatID int64, pack, emoji string) {
+	b.sendStickerOrEmojiReturning(ctx, chatID, pack, emoji)
+}
+
+// sendStickerOrEmojiReturning behaves like sendStickerOrEmoji but returns the
+// id of the message it sent (sticker or emoji fallback) so callers can later
+// delete it. It returns 0 if nothing could be sent.
+func (b *BotAPI) sendStickerOrEmojiReturning(ctx context.Context, chatID int64, pack, emoji string) int64 {
 	if fileID, ok := b.StickerFor(ctx, pack, emoji); ok {
-		if err := b.SendSticker(ctx, chatID, fileID); err == nil {
-			return
+		if id, err := b.SendStickerReturning(ctx, chatID, fileID); err == nil {
+			return id
 		} else {
 			log.Printf("send sticker failed: %v", err)
 		}
 	}
-	if err := b.SendMessage(ctx, chatID, emoji, nil); err != nil {
+	if id, err := b.SendMessageReturning(ctx, chatID, emoji, nil); err == nil {
+		return id
+	} else {
 		log.Printf("send emoji fallback failed: %v", err)
 	}
+	return 0
 }
 
 // sendRandomSticker picks one of the choices at random and sends it.
