@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube Cookie Exporter",
+  "version": "1.0.0",
+  "description": "Export your youtube.com cookies as a base64 value to paste into the bot's .env (YT_COOKIES_B64).",
+  "permissions": ["cookies"],
+  "host_permissions": ["https://*.youtube.com/"],
+  "action": {
+    "default_title": "Export YouTube cookies",
+    "default_popup": "popup.html"
+  }
+}
