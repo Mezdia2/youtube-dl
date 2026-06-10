@@ -8,8 +8,12 @@ import (
 )
 
 func onStart(ctx context.Context, bot *BotAPI, msg *Message) error {
-	lang := bot.userLanguage(ctx, msg)
-	return bot.SendMessage(ctx, msg.Chat.ID, bot.localizer.T(lang, "start"), nil)
+	// The greeting is a sticker only (no text), picked at random from either pack.
+	bot.sendRandomSticker(ctx, msg.Chat.ID,
+		stickerChoice{pack: stickerPackMain, emoji: emojiWave},
+		stickerChoice{pack: stickerPackFull, emoji: emojiSnowflake},
+	)
+	return nil
 }
 
 func onHelp(ctx context.Context, bot *BotAPI, msg *Message) error {
@@ -103,19 +107,27 @@ func onText(ctx context.Context, bot *BotAPI, msg *Message) error {
 	text := strings.TrimSpace(msg.Text)
 
 	if !isYouTubeURL(text) {
+		// Only reply in private chats; groups stay quiet (also enforced upstream).
 		if msg.Chat.Type == "private" {
-			return bot.SendMessage(ctx, msg.Chat.ID, bot.localizer.T(lang, "invalid_youtube_url"), nil)
+			bot.sendStickerOrEmoji(ctx, msg.Chat.ID, stickerPackFull, emojiSearch)
+			return bot.SendMessage(ctx, msg.Chat.ID, bot.localizer.T(lang, "not_a_command"), nil)
 		}
 		return nil
 	}
 
-	if err := bot.SendMessage(ctx, msg.Chat.ID, bot.localizer.T(lang, "metadata_loading"), nil); err != nil {
-		return err
+	// Acknowledge the link: react 👀 on the user's message, then show a
+	// "searching" sticker while the metadata loads.
+	if msg.MessageID != 0 {
+		if err := bot.SetMessageReaction(ctx, msg.Chat.ID, msg.MessageID, emojiEyes); err != nil {
+			log.Printf("set reaction failed: %v", err)
+		}
 	}
+	bot.sendStickerOrEmoji(ctx, msg.Chat.ID, stickerPackFull, emojiSearch)
 
 	info, err := FetchVideoInfo(ctx, bot.cfg, text)
 	if err != nil {
 		log.Printf("fetch video info failed: %v", err)
+		bot.sendStickerOrEmoji(ctx, msg.Chat.ID, stickerPackFull, emojiSearch)
 		return bot.SendMessage(ctx, msg.Chat.ID, bot.localizer.T(lang, "metadata_failed"), nil)
 	}
 
@@ -221,6 +233,10 @@ func onQualitySelect(ctx context.Context, bot *BotAPI, callback *CallbackQuery) 
 	if err := TriggerWorkflow(bot.cfg, session.URL, formatType, quality, chatIDStr, username, lang); err != nil {
 		log.Printf("workflow trigger failed: %v (format=%s quality=%s chatID=%s)",
 			err, formatType, quality, chatIDStr)
+		bot.sendRandomSticker(ctx, chatID,
+			stickerChoice{pack: stickerPackFull, emoji: emojiProhibit},
+			stickerChoice{pack: stickerPackMain, emoji: emojiThumbDown},
+		)
 		return bot.SendMessage(ctx, chatID, bot.localizer.T(lang, "workflow_failed"), nil)
 	}
 
