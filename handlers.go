@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 )
 
 func onStart(ctx context.Context, bot *BotAPI, msg *Message) error {
@@ -47,11 +48,24 @@ func onLanguageSelect(ctx context.Context, bot *BotAPI, callback *CallbackQuery)
 	if callback.Message != nil {
 		chatID = callback.Message.Chat.ID
 	}
-	if err := bot.SendMessage(ctx, chatID, bot.localizer.T(lang, "language_saved"), nil); err != nil {
-		return err
+
+	// Grab any pending request before we touch it; we re-run it below.
+	pending := GetPendingRequest(userID)
+
+	// The message carrying the language keyboard is the "choose language"
+	// prompt itself, so delete it now that a choice has been made.
+	if callback.Message != nil {
+		bot.deleteMessageBestEffort(ctx, chatID, callback.Message.MessageID)
 	}
 
-	pending := GetPendingRequest(userID)
+	// Confirm in the chosen language, then auto-remove the confirmation so it
+	// does not linger above the processed request.
+	confirmID, err := bot.SendMessageReturning(ctx, chatID, bot.localizer.T(lang, "language_saved"), nil)
+	if err != nil {
+		return err
+	}
+	bot.deleteMessageAfter(chatID, confirmID, 5*time.Second)
+
 	if pending == nil {
 		return nil
 	}
@@ -116,18 +130,18 @@ func onText(ctx context.Context, bot *BotAPI, msg *Message) error {
 	}
 
 	// Acknowledge the link: react 👀 on the user's message, then show a
-	// "searching" sticker while the metadata loads.
+	// "searching" sticker that stays up until the result is ready.
 	if msg.MessageID != 0 {
 		if err := bot.SetMessageReaction(ctx, msg.Chat.ID, msg.MessageID, emojiEyes); err != nil {
 			log.Printf("set reaction failed: %v", err)
 		}
 	}
-	bot.sendStickerOrEmoji(ctx, msg.Chat.ID, stickerPackFull, emojiSearch)
+	searchStickerID := bot.sendStickerOrEmojiReturning(ctx, msg.Chat.ID, stickerPackFull, emojiSearch)
 
 	info, err := FetchVideoInfo(ctx, bot.cfg, text)
 	if err != nil {
 		log.Printf("fetch video info failed: %v", err)
-		bot.sendStickerOrEmoji(ctx, msg.Chat.ID, stickerPackFull, emojiSearch)
+		bot.deleteMessageBestEffort(ctx, msg.Chat.ID, searchStickerID)
 		return bot.SendMessage(ctx, msg.Chat.ID, bot.localizer.T(lang, "metadata_failed"), nil)
 	}
 
@@ -137,12 +151,15 @@ func onText(ctx context.Context, bot *BotAPI, msg *Message) error {
 
 	if info.Thumbnail != "" {
 		if err := bot.SendPhoto(ctx, msg.Chat.ID, info.Thumbnail, caption, markup); err == nil {
+			bot.deleteMessageBestEffort(ctx, msg.Chat.ID, searchStickerID)
 			return nil
 		}
 		log.Printf("send photo metadata failed, falling back to message")
 	}
 
-	return bot.SendMessage(ctx, msg.Chat.ID, caption+"\n\n"+bot.localizer.T(lang, "quality_prompt"), markup)
+	sendErr := bot.SendMessage(ctx, msg.Chat.ID, caption+"\n\n"+bot.localizer.T(lang, "quality_prompt"), markup)
+	bot.deleteMessageBestEffort(ctx, msg.Chat.ID, searchStickerID)
+	return sendErr
 }
 
 func qualityKeyboard(l *Localizer, lang string, options []DownloadOption) *InlineKeyboardMarkup {
@@ -241,6 +258,10 @@ func onQualitySelect(ctx context.Context, bot *BotAPI, callback *CallbackQuery) 
 	}
 
 	DelSession(chatID)
+
+	// The quality menu has served its purpose; remove it so only the download
+	// status remains for this step.
+	bot.deleteMessageBestEffort(ctx, chatID, callback.Message.MessageID)
 
 	log.Printf("workflow triggered: format=%s quality=%s chatID=%s username=%s",
 		formatType, quality, chatIDStr, username)

@@ -3,7 +3,7 @@
   "help": "Bot help:\n\n1. Send a YouTube video link\n2. Choose a quality from the menu\n3. GitHub Actions downloads the file and sends it to you\n\n/cancel - cancel",
   "cancel": "Session cleared. Send the YouTube link again.",
   "choose_language": "Please choose your language:",
-  "language_saved": "Your language has been saved. I will process your previous request now.",
+  "language_saved": "Your language has been saved. Now your previous request is being processed.",
   "invalid_language": "Selected language is not valid.",
   "not_a_command": "That isn't one of my commands. Send me a YouTube link and I'll download it for you.",
   "metadata_loading": "Fetching video information...",

@@ -262,7 +262,9 @@ func (b *BotAPI) HandleUpdate(ctx context.Context, update Update) error {
 	}
 	if !ok {
 		SetPendingRequest(userID, update.Message)
-		return b.SendMessage(ctx, update.Message.Chat.ID, b.localizer.T(defaultLanguage, "choose_language"), b.localizer.LanguageKeyboard())
+		// The language prompt is shown before we know the user's language, so it
+		// is always rendered in English.
+		return b.SendMessage(ctx, update.Message.Chat.ID, b.localizer.T(langEnglish, "choose_language"), b.localizer.LanguageKeyboard())
 	}
 
 	return b.handleMessage(ctx, update.Message)
@@ -283,6 +285,13 @@ func (b *BotAPI) handleMessage(ctx context.Context, msg *Message) error {
 }
 
 func (b *BotAPI) SendMessage(ctx context.Context, chatID int64, text string, markup *InlineKeyboardMarkup) error {
+	_, err := b.SendMessageReturning(ctx, chatID, text, markup)
+	return err
+}
+
+// SendMessageReturning sends a text message and returns the id of the sent
+// message so callers can later edit or delete it.
+func (b *BotAPI) SendMessageReturning(ctx context.Context, chatID int64, text string, markup *InlineKeyboardMarkup) (int64, error) {
 	payload := map[string]any{
 		"chat_id": chatID,
 		"text":    text,
@@ -290,10 +299,16 @@ func (b *BotAPI) SendMessage(ctx context.Context, chatID int64, text string, mar
 	if markup != nil {
 		payload["reply_markup"] = markup
 	}
-	return b.Call(ctx, "sendMessage", payload, nil)
+	return b.callReturningMessageID(ctx, "sendMessage", payload)
 }
 
 func (b *BotAPI) SendPhoto(ctx context.Context, chatID int64, photo, caption string, markup *InlineKeyboardMarkup) error {
+	_, err := b.SendPhotoReturning(ctx, chatID, photo, caption, markup)
+	return err
+}
+
+// SendPhotoReturning sends a photo and returns the id of the sent message.
+func (b *BotAPI) SendPhotoReturning(ctx context.Context, chatID int64, photo, caption string, markup *InlineKeyboardMarkup) (int64, error) {
 	payload := map[string]any{
 		"chat_id": chatID,
 		"photo":   photo,
@@ -302,14 +317,68 @@ func (b *BotAPI) SendPhoto(ctx context.Context, chatID int64, photo, caption str
 	if markup != nil {
 		payload["reply_markup"] = markup
 	}
-	return b.Call(ctx, "sendPhoto", payload, nil)
+	return b.callReturningMessageID(ctx, "sendPhoto", payload)
 }
 
 func (b *BotAPI) SendSticker(ctx context.Context, chatID int64, fileID string) error {
-	return b.Call(ctx, "sendSticker", map[string]any{
+	_, err := b.SendStickerReturning(ctx, chatID, fileID)
+	return err
+}
+
+// SendStickerReturning sends a sticker and returns the id of the sent message.
+func (b *BotAPI) SendStickerReturning(ctx context.Context, chatID int64, fileID string) (int64, error) {
+	return b.callReturningMessageID(ctx, "sendSticker", map[string]any{
 		"chat_id": chatID,
 		"sticker": fileID,
+	})
+}
+
+// callReturningMessageID performs a send-style Telegram call and extracts the
+// message_id of the resulting message from the response.
+func (b *BotAPI) callReturningMessageID(ctx context.Context, method string, payload any) (int64, error) {
+	var resp struct {
+		Result struct {
+			MessageID int64 `json:"message_id"`
+		} `json:"result"`
+	}
+	if err := b.Call(ctx, method, payload, &resp); err != nil {
+		return 0, err
+	}
+	return resp.Result.MessageID, nil
+}
+
+// DeleteMessage removes a previously sent message.
+func (b *BotAPI) DeleteMessage(ctx context.Context, chatID, messageID int64) error {
+	return b.Call(ctx, "deleteMessage", map[string]any{
+		"chat_id":    chatID,
+		"message_id": messageID,
 	}, nil)
+}
+
+// deleteMessageBestEffort deletes a message immediately, logging (but not
+// returning) any failure. A zero messageID is a no-op.
+func (b *BotAPI) deleteMessageBestEffort(ctx context.Context, chatID, messageID int64) {
+	if messageID == 0 {
+		return
+	}
+	if err := b.DeleteMessage(ctx, chatID, messageID); err != nil {
+		log.Printf("delete message %d failed: %v", messageID, err)
+	}
+}
+
+// deleteMessageAfter schedules a message for deletion after delay. It runs in
+// its own goroutine with a fresh context so it survives the originating
+// request. A zero messageID is a no-op.
+func (b *BotAPI) deleteMessageAfter(chatID, messageID int64, delay time.Duration) {
+	if messageID == 0 {
+		return
+	}
+	go func() {
+		time.Sleep(delay)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		b.deleteMessageBestEffort(ctx, chatID, messageID)
+	}()
 }
 
 // SetMessageReaction places a single emoji reaction on a message. Only emojis

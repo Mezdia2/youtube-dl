@@ -63,38 +63,57 @@ var audioQualityOrder = []string{"mp3", "m4a"}
 
 const ytdlpMaxCacheAge = 24 * time.Hour
 
+// modernPlayerClients is an explicit set of player clients that often work
+// without sign-in. YouTube periodically breaks individual clients, so this is
+// only the first thing we try — see fetchAttempts for the default-client
+// fallback that relies on yt-dlp's own, continuously-updated client list.
+const modernPlayerClients = "youtube:player_client=tv,mweb,web_safari,ios"
+
+type fetchAttempt struct {
+	name string
+	args []string
+}
+
+// fetchAttempts builds the ordered list of yt-dlp invocations to try. The key
+// robustness fix over the previous code is the "default clients" attempts,
+// which omit --extractor-args entirely so yt-dlp falls back to its built-in
+// client list; when YouTube breaks the hardcoded clients above, those forced
+// attempts all fail and metadata fetching would otherwise error out.
+func fetchAttempts(url, cookiePath string) []fetchAttempt {
+	attempts := []fetchAttempt{
+		{name: "cookieless/modern-clients", args: buildInfoArgs("--extractor-args", modernPlayerClients, url)},
+		{name: "cookieless/default-clients", args: buildInfoArgs(url)},
+	}
+	if cookiePath != "" {
+		attempts = append(attempts,
+			fetchAttempt{name: "cookies/modern-clients", args: buildInfoArgs("--extractor-args", modernPlayerClients, "--cookies", cookiePath, url)},
+			fetchAttempt{name: "cookies/default-clients", args: buildInfoArgs("--cookies", cookiePath, url)},
+		)
+	}
+	return attempts
+}
+
 func FetchVideoInfo(ctx context.Context, cfg *Config, url string) (*VideoInfo, error) {
 	ytdlpPath, err := ResolveYTDLP(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	// Cookieless attempt first (priority): modern player clients that do not
-	// require sign-in. android_creator was removed by yt-dlp, so it is gone.
-	nocookieArgs := buildInfoArgs("--extractor-args", "youtube:player_client=tv,mweb,web_safari,ios", url)
-
-	stdout, err := runYTDLP(ctx, ytdlpPath, nocookieArgs)
-	if err == nil {
-		return parseVideoInfo(stdout)
-	}
-
-	firstErr := err
-	log.Printf("yt-dlp no-cookies attempt failed: %v", firstErr)
-
 	cookiePath, cookieCleanup, cookieErr := writeTempCookies(cfg)
-	if cookieErr != nil {
-		return nil, fmt.Errorf("no-cookies attempt failed: %v; cookies setup failed: %w", firstErr, cookieErr)
-	}
 	defer cookieCleanup()
-
-	if cookiePath != "" {
-		cookieArgs := buildInfoArgs("--cookies", cookiePath, url)
-		stdout, err = runYTDLP(ctx, ytdlpPath, cookieArgs)
-		if err == nil {
-			return parseVideoInfo(stdout)
-		}
-		log.Printf("yt-dlp cookies attempt failed: %v", err)
+	if cookieErr != nil {
+		// Bad cookies should not block the cookieless attempts; just log and
+		// proceed without them.
+		log.Printf("cookies setup failed, continuing without cookies: %v", cookieErr)
 	}
+
+	attempts := fetchAttempts(url, cookiePath)
+
+	info, firstErr := runFetchAttempts(ctx, ytdlpPath, attempts)
+	if info != nil {
+		return info, nil
+	}
+	log.Printf("yt-dlp metadata attempts failed: %v", firstErr)
 
 	refreshedPath, refreshed, refreshErr := RefreshYTDLP(ctx, cfg)
 	if refreshErr != nil {
@@ -104,20 +123,33 @@ func FetchVideoInfo(ctx context.Context, cfg *Config, url string) (*VideoInfo, e
 		return nil, firstErr
 	}
 
-	stdout, err = runYTDLP(ctx, refreshedPath, nocookieArgs)
-	if err == nil {
-		return parseVideoInfo(stdout)
+	info, err = runFetchAttempts(ctx, refreshedPath, attempts)
+	if info != nil {
+		return info, nil
 	}
+	return nil, fmt.Errorf("all attempts failed after yt-dlp refresh: %v", err)
+}
 
-	if cookiePath != "" {
-		cookieArgs := buildInfoArgs("--cookies", cookiePath, url)
-		stdout, err = runYTDLP(ctx, refreshedPath, cookieArgs)
-		if err == nil {
-			return parseVideoInfo(stdout)
+// runFetchAttempts tries each attempt in order, returning the first successful
+// parse. It returns the last error when every attempt fails.
+func runFetchAttempts(ctx context.Context, ytdlpPath string, attempts []fetchAttempt) (*VideoInfo, error) {
+	var lastErr error
+	for _, a := range attempts {
+		stdout, err := runYTDLP(ctx, ytdlpPath, a.args)
+		if err != nil {
+			lastErr = fmt.Errorf("%s: %w", a.name, err)
+			log.Printf("yt-dlp attempt %s failed: %v", a.name, err)
+			continue
 		}
+		info, parseErr := parseVideoInfo(stdout)
+		if parseErr != nil {
+			lastErr = fmt.Errorf("%s: %w", a.name, parseErr)
+			log.Printf("yt-dlp attempt %s parse failed: %v", a.name, parseErr)
+			continue
+		}
+		return info, nil
 	}
-
-	return nil, fmt.Errorf("all attempts failed: %v", firstErr)
+	return nil, lastErr
 }
 
 func buildInfoArgs(extras ...string) []string {
