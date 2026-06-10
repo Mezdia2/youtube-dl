@@ -5,7 +5,7 @@
   "choose_language": "Please choose your language:",
   "language_saved": "Your language has been saved. I will process your previous request now.",
   "invalid_language": "Selected language is not valid.",
-  "invalid_youtube_url": "Please send a valid YouTube link.",
+  "not_a_command": "That isn't one of my commands. Send me a YouTube link and I'll download it for you.",
   "metadata_loading": "Fetching video information...",
   "metadata_failed": "Could not fetch video information. Please try again.",
   "quality_prompt": "Choose format and quality:",

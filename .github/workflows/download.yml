@@ -145,8 +145,8 @@ jobs:
             fi
           }
 
-          COMMON_OPTS=(--extractor-retries 3 --retry-sleep extractor:5 --no-progress)
-          PLAYER_CLIENT_ARGS=(--extractor-args "youtube:player_client=android_creator,ios")
+          COMMON_OPTS=(--extractor-retries 3 --retry-sleep extractor:5 --sleep-requests 1 --no-progress)
+          PLAYER_CLIENT_ARGS=(--extractor-args "youtube:player_client=tv,mweb,web_safari,ios")
 
           echo "Attempt 1: downloading without cookies (alternative player clients)..."
           set +e
