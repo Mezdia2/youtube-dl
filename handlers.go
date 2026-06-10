@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 )
 
 func onStart(ctx context.Context, bot *BotAPI, msg *Message) error {
@@ -47,11 +48,24 @@ func onLanguageSelect(ctx context.Context, bot *BotAPI, callback *CallbackQuery)
 	if callback.Message != nil {
 		chatID = callback.Message.Chat.ID
 	}
-	if err := bot.SendMessage(ctx, chatID, bot.localizer.T(lang, "language_saved"), nil); err != nil {
-		return err
+
+	// Grab any pending request before we touch it; we re-run it below.
+	pending := GetPendingRequest(userID)
+
+	// The message carrying the language keyboard is the "choose language"
+	// prompt itself, so delete it now that a choice has been made.
+	if callback.Message != nil {
+		bot.deleteMessageBestEffort(ctx, chatID, callback.Message.MessageID)
 	}
 
-	pending := GetPendingRequest(userID)
+	// Confirm in the chosen language, then auto-remove the confirmation so it
+	// does not linger above the processed request.
+	confirmID, err := bot.SendMessageReturning(ctx, chatID, bot.localizer.T(lang, "language_saved"), nil)
+	if err != nil {
+		return err
+	}
+	bot.deleteMessageAfter(chatID, confirmID, 5*time.Second)
+
 	if pending == nil {
 		return nil
 	}
