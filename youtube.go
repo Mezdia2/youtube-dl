@@ -69,7 +69,9 @@ func FetchVideoInfo(ctx context.Context, cfg *Config, url string) (*VideoInfo, e
 		return nil, err
 	}
 
-	nocookieArgs := buildInfoArgs("--extractor-args", "youtube:player_client=android_creator,ios", url)
+	// Cookieless attempt first (priority): modern player clients that do not
+	// require sign-in. android_creator was removed by yt-dlp, so it is gone.
+	nocookieArgs := buildInfoArgs("--extractor-args", "youtube:player_client=tv,mweb,web_safari,ios", url)
 
 	stdout, err := runYTDLP(ctx, ytdlpPath, nocookieArgs)
 	if err == nil {
