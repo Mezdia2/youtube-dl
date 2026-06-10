@@ -25,6 +25,9 @@
 
 - **Video downloads** — Best, 1080p, 720p, 480p, 360p
 - **Audio extraction** — MP3 & M4A formats
+- **Cookieless-first downloads** — tries modern `yt-dlp` player clients (tv, mweb, web_safari, ios) before falling back to cookies
+- **Sticker & reaction UX** — greets with a sticker, reacts 👀 to links, and uses UtyaDuck / UtyaDuckFull stickers for searching and error states (falls back to the emoji as text when a pack has no match)
+- **Cookie exporter extension** — bundled Chrome extension (`cookie-extension/`) produces a paste-ready `YT_COOKIES_B64`
 - **MTProto upload** — sends files up to 2 GB via gotd/td
 - **Bot API fallback** — files ≤ 50 MB sent via Telegram Bot API
 - **Webhook mode** — receives Telegram updates via HTTPS webhook (no polling)
@@ -238,7 +241,7 @@ MYSQL_DSN=user:password@tcp(host:3306)/database?parseTime=true&charset=utf8mb4
 | `MYSQL_URL` | **Yes** (one of) | — | MySQL URL format (priority; recommended for Railway). Example: `mysql://user:password@host:3306/database` |
 | `MYSQL_DSN` | **Yes** (one of) | — | MySQL DSN format (fallback). Example: `user:password@tcp(host:3306)/database?parseTime=true&charset=utf8mb4` |
 | `YT_DLP_PATH` | No | auto | Optional path to `yt-dlp`; if omitted, the bot checks PATH then downloads the official binary into its cache |
-| `YT_COOKIES_B64` | No | — | Optional base64-encoded YouTube cookies file for metadata extraction and Actions downloads |
+| `YT_COOKIES_B64` | No | — | Optional base64-encoded YouTube cookies file used as a **fallback** after the cookieless method; generate it with the bundled [`cookie-extension/`](cookie-extension/) |
 
 ---
 
@@ -281,6 +284,23 @@ Copy the base64 string and set it as `TG_SESSION` in `.env`.
 
 ---
 
+## YouTube Cookies (fallback)
+
+The bot downloads **without cookies first**, using modern `yt-dlp` player
+clients (`tv`, `mweb`, `web_safari`, `ios`). Cookies are only used as a fallback
+when the cookieless attempt fails. YouTube rotates session cookies often, so when
+the bot reports that cookies are invalid, export fresh ones:
+
+1. Load the bundled [`cookie-extension/`](cookie-extension/) in Chrome
+   (`chrome://extensions` → Developer mode → Load unpacked).
+2. Sign in to YouTube, open the extension, click **Generate**, then **Copy**.
+3. Set the value as `YT_COOKIES_B64` in `.env`. The bot syncs it to the GitHub
+   Actions secret automatically on the next request.
+
+See [`cookie-extension/README.md`](cookie-extension/README.md) for details.
+
+---
+
 ## Architecture
 
 ### Bot Server (`main.go`, `handlers.go`, `config.go`, `state.go`, `ghactions.go`)
@@ -288,7 +308,8 @@ Copy the base64 string and set it as `TG_SESSION` in `.env`.
 | File | Responsibility |
 |------|----------------|
 | `main.go` | Bot API types, webhook server, `setWebhook` on startup, CLI flags (`--setup-session`, `--file`, `--chat-id`), healthcheck `/healthz` |
-| `handlers.go` | `/start`, `/help`, `/cancel`, URL detection, quality selection |
+| `handlers.go` | `/start`, `/help`, `/cancel`, URL detection, quality selection, sticker/reaction UX |
+| `stickers.go` | Sticker set fetching/caching, emoji matching, and sticker/reaction send helpers |
 | `config.go` | Environment loading, `.env` parser, validation (all env vars: BOT_TOKEN, GH_*, TG_*, WEBHOOK_*, PORT) |
 | `database.go` | MySQL connection, migration, and user language persistence |
 | `i18n.go` | Locale loading and translation helpers |
