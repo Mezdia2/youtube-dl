@@ -75,8 +75,8 @@ func (l *Localizer) LanguageKeyboard() *InlineKeyboardMarkup {
 	return &InlineKeyboardMarkup{
 		InlineKeyboard: [][]InlineKeyboardButton{
 			{
-				{Text: supportedLanguages[langPersian], CallbackData: "lang:" + langPersian},
-				{Text: supportedLanguages[langEnglish], CallbackData: "lang:" + langEnglish},
+				{Text: "🇮🇷 " + supportedLanguages[langPersian], CallbackData: "lang:" + langPersian},
+				{Text: "🇺🇸 🇬🇧 " + supportedLanguages[langEnglish], CallbackData: "lang:" + langEnglish},
 			},
 		},
 	}

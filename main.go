@@ -262,7 +262,9 @@ func (b *BotAPI) HandleUpdate(ctx context.Context, update Update) error {
 	}
 	if !ok {
 		SetPendingRequest(userID, update.Message)
-		return b.SendMessage(ctx, update.Message.Chat.ID, b.localizer.T(defaultLanguage, "choose_language"), b.localizer.LanguageKeyboard())
+		// The language prompt is shown before we know the user's language, so it
+		// is always rendered in English.
+		return b.SendMessage(ctx, update.Message.Chat.ID, b.localizer.T(langEnglish, "choose_language"), b.localizer.LanguageKeyboard())
 	}
 
 	return b.handleMessage(ctx, update.Message)
