@@ -23,10 +23,16 @@ type MediaRequest struct {
 }
 
 // MediaResult is a downloaded file ready to be uploaded. Cleanup removes the
-// working directory and must be called once the file has been consumed.
+// working directory and must be called once the file has been consumed. The
+// video metadata is read from yt-dlp's info JSON so MTProto uploads can carry
+// correct duration/dimensions and render as a playable video rather than a
+// plain document.
 type MediaResult struct {
 	FilePath string
 	Title    string
+	Duration int
+	Width    int
+	Height   int
 	Cleanup  func()
 }
 
@@ -120,9 +126,13 @@ func runDownloadAttempts(ctx context.Context, ytdlpPath, ffmpeg string, req Medi
 		}
 
 		dir := workDir
+		title, duration, width, height := readMediaMeta(workDir)
 		return &MediaResult{
 			FilePath: filePath,
-			Title:    readMediaTitle(workDir),
+			Title:    title,
+			Duration: duration,
+			Width:    width,
+			Height:   height,
 			Cleanup:  func() { _ = os.RemoveAll(dir) },
 		}, nil
 	}
@@ -238,12 +248,14 @@ func findDownloadedFile(dir string) (string, error) {
 	return best, nil
 }
 
-// readMediaTitle pulls the human-readable title from the info JSON yt-dlp writes
-// alongside the media file, falling back to a generic label.
-func readMediaTitle(dir string) string {
+// readMediaMeta pulls the human-readable title and, for video, the duration and
+// dimensions from the info JSON yt-dlp writes alongside the media file. Missing
+// fields default to zero and the title falls back to a generic label.
+func readMediaMeta(dir string) (title string, duration, width, height int) {
+	title = defaultMediaTitle
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return defaultMediaTitle
+		return title, 0, 0, 0
 	}
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
@@ -258,16 +270,23 @@ func readMediaTitle(dir string) string {
 			continue
 		}
 		var meta struct {
-			Title string `json:"title"`
+			Title    string  `json:"title"`
+			Duration float64 `json:"duration"`
+			Width    int     `json:"width"`
+			Height   int     `json:"height"`
 		}
 		if err := json.Unmarshal(data, &meta); err != nil {
 			continue
 		}
 		if strings.TrimSpace(meta.Title) != "" {
-			return meta.Title
+			title = meta.Title
+			duration = int(meta.Duration)
+			width = meta.Width
+			height = meta.Height
+			return title, duration, width, height
 		}
 	}
-	return defaultMediaTitle
+	return title, 0, 0, 0
 }
 
 func lastStderrLine(stderr string) string {

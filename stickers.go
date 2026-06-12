@@ -20,17 +20,26 @@ const (
 	emojiWave      = "👋"
 	emojiSnowflake = "❄️"
 	emojiEyes      = "👀"
+	emojiCheck     = "✅"
 	emojiSearch    = "🔍"
 	emojiProhibit  = "🚫"
 	emojiThumbDown = "👎"
 )
 
-const stickerCacheTTL = 6 * time.Hour
+const (
+	stickerCacheTTL = 6 * time.Hour
+	// A failed or empty getStickerSet is cached only briefly so a single
+	// transient network blip doesn't disable all stickers for hours.
+	stickerNegativeCacheTTL = 2 * time.Minute
+)
 
 // stickerSet maps a canonical emoji to the file_ids of every sticker tagged with it.
 type stickerSet struct {
 	byEmoji   map[string][]string
 	fetchedAt time.Time
+	// ok is false when the underlying getStickerSet call failed, so the empty
+	// result is only cached for stickerNegativeCacheTTL instead of the full TTL.
+	ok bool
 }
 
 // stickerManager caches fetched sticker sets so we only hit getStickerSet rarely.
@@ -88,8 +97,14 @@ func (b *BotAPI) loadStickerSet(ctx context.Context, name string) *stickerSet {
 	b.stickers.mu.Lock()
 	defer b.stickers.mu.Unlock()
 
-	if s, ok := b.stickers.sets[name]; ok && time.Since(s.fetchedAt) < stickerCacheTTL {
-		return s
+	if s, ok := b.stickers.sets[name]; ok {
+		ttl := stickerCacheTTL
+		if !s.ok {
+			ttl = stickerNegativeCacheTTL
+		}
+		if time.Since(s.fetchedAt) < ttl {
+			return s
+		}
 	}
 
 	set := &stickerSet{byEmoji: make(map[string][]string), fetchedAt: time.Now()}
@@ -110,6 +125,7 @@ func (b *BotAPI) loadStickerSet(ctx context.Context, name string) *stickerSet {
 		key := canonicalEmoji(st.Emoji)
 		set.byEmoji[key] = append(set.byEmoji[key], st.FileID)
 	}
+	set.ok = true
 	b.stickers.sets[name] = set
 	return set
 }
