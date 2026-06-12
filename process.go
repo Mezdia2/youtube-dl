@@ -36,9 +36,10 @@ func (b *BotAPI) runDownloadJob(chatID, statusMsgID, reactMsgID int64, username,
 	ctx, cancel := context.WithTimeout(context.Background(), downloadJobTimeout)
 	defer cancel()
 
+	log.Printf("job chat=%d: starting download format=%s quality=%s url=%s", chatID, formatType, quality, url)
 	result, err := DownloadMedia(ctx, b.cfg, MediaRequest{URL: url, FormatType: formatType, Quality: quality})
 	if err != nil {
-		log.Printf("download failed (chat=%d format=%s quality=%s): %v", chatID, formatType, quality, err)
+		log.Printf("job chat=%d: download failed (format=%s quality=%s url=%s): %v", chatID, formatType, quality, url, err)
 		b.finishWithError(chatID, statusMsgID, reactMsgID, lang, "download_failed")
 		return
 	}
@@ -46,14 +47,16 @@ func (b *BotAPI) runDownloadJob(chatID, statusMsgID, reactMsgID int64, username,
 
 	info, err := os.Stat(result.FilePath)
 	if err != nil {
-		log.Printf("stat downloaded file failed (chat=%d): %v", chatID, err)
+		log.Printf("job chat=%d: stat downloaded file %q failed: %v", chatID, result.FilePath, err)
 		b.finishWithError(chatID, statusMsgID, reactMsgID, lang, "download_failed")
 		return
 	}
 	size := info.Size()
+	log.Printf("job chat=%d: downloaded %q (%s) for %s/%s", chatID, result.Title, formatBytes(size), formatType, quality)
 
 	if size >= mtprotoMaxBytes {
 		gb := size / (1024 * 1024 * 1024)
+		log.Printf("job chat=%d: file too large to deliver (%s >= 2 GB limit), asking for a lower quality", chatID, formatBytes(size))
 		b.removeStatus(chatID, statusMsgID)
 		b.signalFailure(chatID, reactMsgID)
 		b.notify(chatID, b.localizer.T(lang, "file_too_large", strconv.FormatInt(gb, 10)))
@@ -63,14 +66,14 @@ func (b *BotAPI) runDownloadJob(chatID, statusMsgID, reactMsgID int64, username,
 	caption := "✅ " + result.Title
 
 	if err := b.deliverMedia(ctx, result, chatID, username, formatType, caption, size); err != nil {
-		log.Printf("deliver media failed (chat=%d): %v", chatID, err)
+		log.Printf("job chat=%d: delivery failed for %q (%s): %v", chatID, result.Title, formatBytes(size), err)
 		b.reportUploadFailure(chatID, statusMsgID, reactMsgID, lang, size)
 		return
 	}
 
 	b.removeStatus(chatID, statusMsgID)
 	b.signalSuccess(chatID, reactMsgID)
-	log.Printf("delivered %q to chat %d (%d bytes)", result.Title, chatID, size)
+	log.Printf("job chat=%d: delivered %q (%s) successfully", chatID, result.Title, formatBytes(size))
 }
 
 // deliverMedia sends the downloaded file to the user. For files within the Bot
@@ -81,11 +84,14 @@ func (b *BotAPI) runDownloadJob(chatID, statusMsgID, reactMsgID int64, username,
 // failure in one still has a chance to deliver.
 func (b *BotAPI) deliverMedia(ctx context.Context, result *MediaResult, chatID int64, username, formatType, caption string, size int64) error {
 	if size <= botAPIMaxBytes {
+		log.Printf("job chat=%d: delivering %s via Bot API (%s within 50 MB limit)", chatID, formatType, formatBytes(size))
 		if err := b.sendLocalMedia(ctx, chatID, formatType, result.FilePath, caption); err == nil {
 			return nil
 		} else {
-			log.Printf("bot api delivery failed (chat=%d), trying mtproto: %v", chatID, err)
+			log.Printf("job chat=%d: Bot API delivery failed, falling back to MTProto: %v", chatID, err)
 		}
+	} else {
+		log.Printf("job chat=%d: delivering %s via MTProto (%s exceeds 50 MB Bot API limit)", chatID, formatType, formatBytes(size))
 	}
 
 	if err := UploadFile(ctx, b.cfg, result, chatID, username, formatType, caption); err != nil {

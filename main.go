@@ -193,16 +193,19 @@ func (b *BotAPI) SetWebhook(ctx context.Context, webhookURL, secretToken string)
 func (b *BotAPI) WebhookHandler(secretToken string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
+			log.Printf("webhook: rejected %s %s from %s: method not allowed", r.Method, r.URL.Path, r.RemoteAddr)
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		if r.Header.Get("X-Telegram-Bot-Api-Secret-Token") != secretToken {
+			log.Printf("webhook: rejected request from %s: secret token mismatch", r.RemoteAddr)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
 		var update Update
 		if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
+			log.Printf("webhook: rejected request from %s: decode update body: %v", r.RemoteAddr, err)
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
@@ -210,14 +213,51 @@ func (b *BotAPI) WebhookHandler(secretToken string) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 
+		log.Printf("webhook: accepted update %d (%s)", update.UpdateID, describeUpdate(update))
+
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
 			if err := b.HandleUpdate(ctx, update); err != nil {
-				log.Printf("handle webhook update failed: %v", err)
+				log.Printf("webhook: handling update %d (%s) failed: %v", update.UpdateID, describeUpdate(update), err)
 			}
 		}()
 	}
+}
+
+// describeUpdate renders a short, log-friendly summary of an update — its kind,
+// the originating chat/user, and a hint of the payload — so a single log line
+// is enough to tell what arrived without dumping the whole struct.
+func describeUpdate(update Update) string {
+	switch {
+	case update.CallbackQuery != nil:
+		cq := update.CallbackQuery
+		chatID := int64(0)
+		if cq.Message != nil {
+			chatID = cq.Message.Chat.ID
+		}
+		return fmt.Sprintf("callback data=%q from user=%d chat=%d", cq.Data, cq.From.ID, chatID)
+	case update.Message != nil:
+		msg := update.Message
+		userID := int64(0)
+		if msg.From != nil {
+			userID = msg.From.ID
+		}
+		return fmt.Sprintf("message chat=%d (%s) user=%d text=%q", msg.Chat.ID, msg.Chat.Type, userID, truncateForLog(msg.Text, 80))
+	default:
+		return "unsupported update kind"
+	}
+}
+
+// truncateForLog shortens s to at most max runes, appending an ellipsis when it
+// was cut, so log lines stay readable for long inputs (e.g. descriptions/URLs).
+func truncateForLog(s string, max int) string {
+	s = strings.TrimSpace(s)
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max]) + "…"
 }
 
 func (b *BotAPI) HandleUpdate(ctx context.Context, update Update) error {
@@ -235,6 +275,7 @@ func (b *BotAPI) HandleUpdate(ctx context.Context, update Update) error {
 	// chatter (including commands and the language prompt) is ignored to avoid
 	// spamming the group. Private chats always engage.
 	if update.Message.Chat.Type != "private" && !isYouTubeURL(update.Message.Text) {
+		log.Printf("update %d: ignoring non-link message in %s chat %d", update.UpdateID, update.Message.Chat.Type, update.Message.Chat.ID)
 		return nil
 	}
 
@@ -251,6 +292,7 @@ func (b *BotAPI) HandleUpdate(ctx context.Context, update Update) error {
 			return err
 		}
 		if !ok {
+			log.Printf("update %d: no language for user %d, prompting and holding request", update.UpdateID, userID)
 			SetPendingRequest(userID, update.Message)
 			// The language prompt is shown before we know the user's language, so
 			// it is always rendered in English.
@@ -406,33 +448,33 @@ func (b *BotAPI) AnswerCallback(ctx context.Context, callbackID string) error {
 func (b *BotAPI) Call(ctx context.Context, method string, payload any, out any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal telegram payload: %w", err)
+		return fmt.Errorf("telegram %s: marshal payload: %w", method, err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.URL(method), bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("create telegram request: %w", err)
+		return fmt.Errorf("telegram %s: create request: %w", method, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := b.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("telegram request: %w", err)
+		return fmt.Errorf("telegram %s: request failed: %w", method, err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("read telegram response: %w", err)
+		return fmt.Errorf("telegram %s: read response: %w", method, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("telegram status %d: %s", resp.StatusCode, string(respBody))
+		return fmt.Errorf("telegram %s: status %d: %s", method, resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 	if out == nil {
 		return nil
 	}
 	if err := json.Unmarshal(respBody, out); err != nil {
-		return fmt.Errorf("decode telegram response: %w", err)
+		return fmt.Errorf("telegram %s: decode response: %w", method, err)
 	}
 	return nil
 }

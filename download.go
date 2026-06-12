@@ -76,21 +76,25 @@ func DownloadMedia(ctx context.Context, cfg *Config, req MediaRequest) (*MediaRe
 	if result != nil {
 		return result, nil
 	}
-	log.Printf("yt-dlp download attempts failed: %v", firstErr)
+	log.Printf("download %s (%s/%s): every yt-dlp attempt failed, refreshing yt-dlp and retrying: %v",
+		req.URL, req.FormatType, req.Quality, firstErr)
 
 	refreshedPath, refreshed, refreshErr := RefreshYTDLP(ctx, cfg)
 	if refreshErr != nil {
-		return nil, fmt.Errorf("all download attempts failed: %v (yt-dlp refresh error: %w)", firstErr, refreshErr)
+		return nil, fmt.Errorf("download %s (%s/%s) failed and yt-dlp refresh errored: %v (refresh error: %w)",
+			req.URL, req.FormatType, req.Quality, firstErr, refreshErr)
 	}
 	if !refreshed {
-		return nil, firstErr
+		return nil, fmt.Errorf("download %s (%s/%s) failed (yt-dlp already current): %w",
+			req.URL, req.FormatType, req.Quality, firstErr)
 	}
 
 	result, err = runDownloadAttempts(ctx, refreshedPath, ffmpeg, req, attempts)
 	if result != nil {
 		return result, nil
 	}
-	return nil, fmt.Errorf("all download attempts failed after yt-dlp refresh: %v", err)
+	return nil, fmt.Errorf("download %s (%s/%s) failed even after refreshing yt-dlp: %w",
+		req.URL, req.FormatType, req.Quality, err)
 }
 
 // runDownloadAttempts tries each strategy in turn, returning the first file it

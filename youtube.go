@@ -115,21 +115,21 @@ func FetchVideoInfo(ctx context.Context, cfg *Config, url string) (*VideoInfo, e
 	if info != nil {
 		return info, nil
 	}
-	log.Printf("yt-dlp metadata attempts failed: %v", firstErr)
+	log.Printf("metadata %s: every yt-dlp attempt failed, refreshing yt-dlp and retrying: %v", url, firstErr)
 
 	refreshedPath, refreshed, refreshErr := RefreshYTDLP(ctx, cfg)
 	if refreshErr != nil {
-		return nil, fmt.Errorf("all attempts failed: %v (yt-dlp refresh error: %w)", firstErr, refreshErr)
+		return nil, fmt.Errorf("metadata %s failed and yt-dlp refresh errored: %v (refresh error: %w)", url, firstErr, refreshErr)
 	}
 	if !refreshed {
-		return nil, firstErr
+		return nil, fmt.Errorf("metadata %s failed (yt-dlp already current): %w", url, firstErr)
 	}
 
 	info, err = runFetchAttempts(ctx, refreshedPath, attempts)
 	if info != nil {
 		return info, nil
 	}
-	return nil, fmt.Errorf("all attempts failed after yt-dlp refresh: %v", err)
+	return nil, fmt.Errorf("metadata %s failed even after refreshing yt-dlp: %w", url, err)
 }
 
 // runFetchAttempts tries each attempt in order, returning the first successful

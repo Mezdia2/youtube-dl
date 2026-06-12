@@ -129,18 +129,20 @@ func onText(ctx context.Context, bot *BotAPI, msg *Message) error {
 		return nil
 	}
 
+	log.Printf("link chat=%d: fetching metadata for %s", msg.Chat.ID, text)
+
 	// Acknowledge the link: react 👀 on the user's message, then show a
 	// "searching" sticker that stays up until the result is ready.
 	if msg.MessageID != 0 {
 		if err := bot.SetMessageReaction(ctx, msg.Chat.ID, msg.MessageID, emojiEyes); err != nil {
-			log.Printf("set reaction failed: %v", err)
+			log.Printf("link chat=%d: set 👀 reaction on message %d failed: %v", msg.Chat.ID, msg.MessageID, err)
 		}
 	}
 	searchStickerID := bot.sendStickerOrEmojiReturning(ctx, msg.Chat.ID, stickerPackFull, emojiSearch)
 
 	info, err := FetchVideoInfo(ctx, bot.cfg, text)
 	if err != nil {
-		log.Printf("fetch video info failed: %v", err)
+		log.Printf("link chat=%d: metadata fetch failed for %s: %v", msg.Chat.ID, text, err)
 		bot.deleteMessageBestEffort(ctx, msg.Chat.ID, searchStickerID)
 		// Keep the reaction in step with the outcome and show the documented
 		// error sticker before the localized failure text.
@@ -148,6 +150,7 @@ func onText(ctx context.Context, bot *BotAPI, msg *Message) error {
 		bot.sendStickerOrEmoji(ctx, msg.Chat.ID, stickerPackFull, emojiProhibit)
 		return bot.SendMessage(ctx, msg.Chat.ID, bot.localizer.T(lang, "metadata_failed"), nil)
 	}
+	log.Printf("link chat=%d: metadata ready for %q (%d formats, duration=%s)", msg.Chat.ID, info.Title, len(info.Formats), formatDuration(info.Duration))
 
 	SetSession(msg.Chat.ID, text, msg.MessageID)
 	markup := qualityKeyboard(bot.localizer, lang, info.Formats)
@@ -158,7 +161,7 @@ func onText(ctx context.Context, bot *BotAPI, msg *Message) error {
 			bot.deleteMessageBestEffort(ctx, msg.Chat.ID, searchStickerID)
 			return nil
 		}
-		log.Printf("send photo metadata failed, falling back to message")
+		log.Printf("link chat=%d: send thumbnail photo failed, falling back to text message", msg.Chat.ID)
 	}
 
 	sendErr := bot.SendMessage(ctx, msg.Chat.ID, caption+"\n\n"+bot.localizer.T(lang, "quality_prompt"), markup)

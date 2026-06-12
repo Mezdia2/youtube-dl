@@ -59,13 +59,14 @@ func UploadFile(ctx context.Context, cfg *Config, result *MediaResult, chatID in
 	return client.Run(ctx, func(ctx context.Context) error {
 		me, err := client.Self(ctx)
 		if err != nil {
-			return fmt.Errorf("not authenticated (run --setup-session first): %w", err)
+			return fmt.Errorf("mtproto: not authenticated (run --setup-session first): %w", err)
 		}
-		log.Printf("uploader authenticated as user %d (%s)", me.ID, me.FirstName)
+		log.Printf("mtproto: authenticated as user %d (%s), delivering %s to chat %d (username %q)",
+			me.ID, me.FirstName, formatType, chatID, username)
 
 		peer, err := resolvePeer(ctx, client, chatID, username)
 		if err != nil {
-			return fmt.Errorf("peer resolution failed: %w", err)
+			return fmt.Errorf("mtproto: resolve peer for chat %d (username %q): %w", chatID, username, err)
 		}
 
 		return sendFile(ctx, client, peer, result, formatType, caption)
@@ -318,14 +319,14 @@ func sendFile(ctx context.Context, client *telegram.Client, peer tg.InputPeerCla
 	up := uploader.NewUploader(client.API())
 	uploaded, err := up.FromPath(ctx, filePath)
 	if err != nil {
-		return fmt.Errorf("upload file: %w", err)
+		return fmt.Errorf("mtproto: upload %q: %w", filename, err)
 	}
 
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
-		return fmt.Errorf("stat file: %w", err)
+		return fmt.Errorf("mtproto: stat %q: %w", filename, err)
 	}
-	fmt.Printf("uploaded %s (%d bytes)\n", filename, fileInfo.Size())
+	log.Printf("mtproto: uploaded %s (%d bytes), sending as %s", filename, fileInfo.Size(), formatType)
 
 	var mimeType string
 	var attrs []tg.DocumentAttributeClass
@@ -364,7 +365,7 @@ func sendFile(ctx context.Context, client *telegram.Client, peer tg.InputPeerCla
 
 	randomID, err := client.RandInt64()
 	if err != nil {
-		return fmt.Errorf("generate random id: %w", err)
+		return fmt.Errorf("mtproto: generate random id: %w", err)
 	}
 
 	req := &tg.MessagesSendMediaRequest{
@@ -376,10 +377,10 @@ func sendFile(ctx context.Context, client *telegram.Client, peer tg.InputPeerCla
 
 	_, err = client.API().MessagesSendMedia(ctx, req)
 	if err != nil {
-		return fmt.Errorf("send media: %w", err)
+		return fmt.Errorf("mtproto: send media %q: %w", filename, err)
 	}
 
-	fmt.Printf("sent %s to chat %d\n", filename, peerID(peer))
+	log.Printf("mtproto: sent %s to peer %d", filename, peerID(peer))
 	return nil
 }
 
