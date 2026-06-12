@@ -238,19 +238,24 @@ func (b *BotAPI) HandleUpdate(ctx context.Context, update Update) error {
 		return nil
 	}
 
-	userID := update.Message.Chat.ID
-	if update.Message.From != nil {
-		userID = update.Message.From.ID
-	}
-	_, ok, err := b.store.GetUserLanguage(ctx, userID)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		SetPendingRequest(userID, update.Message)
-		// The language prompt is shown before we know the user's language, so it
-		// is always rendered in English.
-		return b.SendMessage(ctx, update.Message.Chat.ID, b.localizer.T(langEnglish, "choose_language"), b.localizer.LanguageKeyboard())
+	// The per-user language prompt only makes sense in private chats, where
+	// Chat.ID equals the user's id and the user can answer the keyboard
+	// privately. In groups (or for anonymous senders where From is nil) we must
+	// not push the language keyboard into the chat — doing so spams the group
+	// and strands the link in pendingRequests, since the group user cannot
+	// complete the flow. Groups simply fall back to the default language.
+	if update.Message.Chat.Type == "private" && update.Message.From != nil {
+		userID := update.Message.From.ID
+		_, ok, err := b.store.GetUserLanguage(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			SetPendingRequest(userID, update.Message)
+			// The language prompt is shown before we know the user's language, so
+			// it is always rendered in English.
+			return b.SendMessage(ctx, update.Message.Chat.ID, b.localizer.T(langEnglish, "choose_language"), b.localizer.LanguageKeyboard())
+		}
 	}
 
 	return b.handleMessage(ctx, update.Message)
