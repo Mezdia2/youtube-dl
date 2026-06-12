@@ -62,23 +62,36 @@ func (b *BotAPI) runDownloadJob(chatID, statusMsgID, reactMsgID int64, username,
 
 	caption := "✅ " + result.Title
 
-	if err := UploadFile(ctx, b.cfg, result.FilePath, chatID, username, formatType, caption); err != nil {
-		log.Printf("mtproto upload failed (chat=%d): %v", chatID, err)
-		if size <= botAPIMaxBytes {
-			if fbErr := b.sendLocalMedia(ctx, chatID, formatType, result.FilePath, caption); fbErr != nil {
-				log.Printf("bot api fallback failed (chat=%d): %v", chatID, fbErr)
-				b.reportUploadFailure(chatID, statusMsgID, reactMsgID, lang, size)
-				return
-			}
-		} else {
-			b.reportUploadFailure(chatID, statusMsgID, reactMsgID, lang, size)
-			return
-		}
+	if err := b.deliverMedia(ctx, result, chatID, username, formatType, caption, size); err != nil {
+		log.Printf("deliver media failed (chat=%d): %v", chatID, err)
+		b.reportUploadFailure(chatID, statusMsgID, reactMsgID, lang, size)
+		return
 	}
 
 	b.removeStatus(chatID, statusMsgID)
 	b.signalSuccess(chatID, reactMsgID)
 	log.Printf("delivered %q to chat %d (%d bytes)", result.Title, chatID, size)
+}
+
+// deliverMedia sends the downloaded file to the user. For files within the Bot
+// API limit it prefers the Bot API, which can always reach a user who has
+// started the bot — including the many users without a public @username that the
+// MTProto user-account uploader cannot resolve. Larger files go over MTProto,
+// which the Bot API cannot handle. Each path falls back to the other so a
+// failure in one still has a chance to deliver.
+func (b *BotAPI) deliverMedia(ctx context.Context, result *MediaResult, chatID int64, username, formatType, caption string, size int64) error {
+	if size <= botAPIMaxBytes {
+		if err := b.sendLocalMedia(ctx, chatID, formatType, result.FilePath, caption); err == nil {
+			return nil
+		} else {
+			log.Printf("bot api delivery failed (chat=%d), trying mtproto: %v", chatID, err)
+		}
+	}
+
+	if err := UploadFile(ctx, b.cfg, result, chatID, username, formatType, caption); err != nil {
+		return fmt.Errorf("mtproto upload: %w", err)
+	}
+	return nil
 }
 
 func (b *BotAPI) reportUploadFailure(chatID, statusMsgID, reactMsgID int64, lang string, size int64) {

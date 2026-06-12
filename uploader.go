@@ -22,8 +22,8 @@ import (
 // configured user session. It runs entirely in-process: the session is
 // materialised into a private temp file for the lifetime of the call and
 // removed afterwards, so concurrent uploads never share session state.
-func UploadFile(ctx context.Context, cfg *Config, filePath string, chatID int64, username, formatType, caption string) error {
-	if filePath == "" || chatID == 0 {
+func UploadFile(ctx context.Context, cfg *Config, result *MediaResult, chatID int64, username, formatType, caption string) error {
+	if result == nil || result.FilePath == "" || chatID == 0 {
 		return fmt.Errorf("file path and chat id are required for sending")
 	}
 
@@ -68,7 +68,7 @@ func UploadFile(ctx context.Context, cfg *Config, filePath string, chatID int64,
 			return fmt.Errorf("peer resolution failed: %w", err)
 		}
 
-		return sendFile(ctx, client, peer, filePath, formatType, caption)
+		return sendFile(ctx, client, peer, result, formatType, caption)
 	})
 }
 
@@ -256,6 +256,7 @@ func resolvePeer(ctx context.Context, client *telegram.Client, chatID int64, use
 
 	if chatID > 0 {
 		result, err := client.API().MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
+			OffsetPeer:    &tg.InputPeerEmpty{},
 			Limit:         100,
 			ExcludePinned: true,
 		})
@@ -309,7 +310,8 @@ func resolvePeer(ctx context.Context, client *telegram.Client, chatID int64, use
 	return &tg.InputPeerChat{ChatID: -chatID}, nil
 }
 
-func sendFile(ctx context.Context, client *telegram.Client, peer tg.InputPeerClass, filePath, formatType, caption string) error {
+func sendFile(ctx context.Context, client *telegram.Client, peer tg.InputPeerClass, result *MediaResult, formatType, caption string) error {
+	filePath := result.FilePath
 	filename := filepath.Base(filePath)
 	ext := strings.ToLower(filepath.Ext(filePath))
 
@@ -331,14 +333,20 @@ func sendFile(ctx context.Context, client *telegram.Client, peer tg.InputPeerCla
 	switch formatType {
 	case "video":
 		mimeType = mimeTypeFromExt(ext, "video/mp4")
+		video := &tg.DocumentAttributeVideo{
+			Duration:          float64(result.Duration),
+			W:                 result.Width,
+			H:                 result.Height,
+			SupportsStreaming: true,
+		}
 		attrs = []tg.DocumentAttributeClass{
-			&tg.DocumentAttributeVideo{Duration: 0},
+			video,
 			&tg.DocumentAttributeFilename{FileName: filename},
 		}
 	case "audio":
 		mimeType = mimeTypeFromExt(ext, "audio/mpeg")
 		attrs = []tg.DocumentAttributeClass{
-			&tg.DocumentAttributeAudio{Duration: 0, Title: caption},
+			&tg.DocumentAttributeAudio{Duration: result.Duration, Title: result.Title},
 			&tg.DocumentAttributeFilename{FileName: filename},
 		}
 	default:
