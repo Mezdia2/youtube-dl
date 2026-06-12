@@ -26,6 +26,7 @@ type VideoInfo struct {
 	Title       string
 	Description string
 	Duration    int64
+	UploadDate  string
 	Thumbnail   string
 	Formats     []DownloadOption
 }
@@ -42,6 +43,7 @@ type ytdlpInfo struct {
 	Title       string        `json:"title"`
 	Description string        `json:"description"`
 	Duration    float64       `json:"duration"`
+	UploadDate  string        `json:"upload_date"`
 	Thumbnail   string        `json:"thumbnail"`
 	Formats     []ytdlpFormat `json:"formats"`
 }
@@ -184,6 +186,7 @@ func parseVideoInfo(data []byte) (*VideoInfo, error) {
 		Title:       raw.Title,
 		Description: trimDescription(raw.Description),
 		Duration:    int64(math.Round(raw.Duration)),
+		UploadDate:  formatUploadDate(raw.UploadDate),
 		Thumbnail:   raw.Thumbnail,
 		Formats:     buildDownloadOptions(raw),
 	}
@@ -461,12 +464,28 @@ func optionRank(o DownloadOption) int {
 }
 
 func trimDescription(description string) string {
-	description = strings.TrimSpace(description)
+	// Collapse runs of whitespace (including newlines) into single spaces so the
+	// description renders as one clean quoted line in the info card.
+	description = strings.Join(strings.Fields(description), " ")
 	if len([]rune(description)) <= 400 {
 		return description
 	}
 	runes := []rune(description)
 	return string(runes[:400]) + "..."
+}
+
+// formatUploadDate converts yt-dlp's compact upload_date (YYYYMMDD) into a
+// readable YYYY-MM-DD. It returns "-" when the date is absent and the raw value
+// unchanged when it is present but not in the expected form.
+func formatUploadDate(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "-"
+	}
+	if t, err := time.Parse("20060102", raw); err == nil {
+		return t.Format("2006-01-02")
+	}
+	return raw
 }
 
 func formatDuration(seconds int64) string {

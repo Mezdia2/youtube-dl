@@ -9,7 +9,7 @@
   "metadata_loading": "Fetching video information...",
   "metadata_failed": "Could not fetch video information. Please try again.",
   "quality_prompt": "Choose format and quality:",
-  "video_info": "Title: %s\nDuration: %s\n\nDescription:\n%s",
+  "video_info": "%s\n> %s\n⏳ %s | 📅 %s",
   "no_description": "No description",
   "expired_session": "Session expired. Send the YouTube link again.",
   "invalid_selection": "Invalid selection. Please try again.",

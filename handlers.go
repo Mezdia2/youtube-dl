@@ -206,7 +206,7 @@ func videoCaption(l *Localizer, lang string, info *VideoInfo) string {
 	if description == "" {
 		description = l.T(lang, "no_description")
 	}
-	return l.T(lang, "video_info", info.Title, formatDuration(info.Duration), description)
+	return l.T(lang, "video_info", info.Title, description, formatDuration(info.Duration), info.UploadDate)
 }
 
 func callbackData(formatType, quality string) string {
