@@ -385,6 +385,18 @@ func (b *BotAPI) SetMessageReaction(ctx context.Context, chatID, messageID int64
 	}, nil)
 }
 
+// setReactionBestEffort updates the reaction on a message, logging (but not
+// returning) any failure. A zero messageID is a no-op. It is used to keep the
+// reaction in step with the job lifecycle (👀 while working → ✅/👎 when done).
+func (b *BotAPI) setReactionBestEffort(ctx context.Context, chatID, messageID int64, emoji string) {
+	if messageID == 0 {
+		return
+	}
+	if err := b.SetMessageReaction(ctx, chatID, messageID, emoji); err != nil {
+		log.Printf("set reaction on message %d failed: %v", messageID, err)
+	}
+}
+
 func (b *BotAPI) AnswerCallback(ctx context.Context, callbackID string) error {
 	return b.Call(ctx, "answerCallbackQuery", map[string]any{
 		"callback_query_id": callbackID,

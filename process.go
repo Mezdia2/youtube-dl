@@ -25,19 +25,21 @@ const (
 )
 
 // startDownload runs the full download/upload pipeline for one request in the
-// background so the webhook handler returns immediately.
-func (b *BotAPI) startDownload(chatID, statusMsgID int64, username, url, formatType, quality, lang string) {
-	go b.runDownloadJob(chatID, statusMsgID, username, url, formatType, quality, lang)
+// background so the webhook handler returns immediately. reactMsgID is the id of
+// the user's link message; the job updates its reaction (👀 → ✅/👎) so the
+// reaction stays in step with the sticker/status lifecycle.
+func (b *BotAPI) startDownload(chatID, statusMsgID, reactMsgID int64, username, url, formatType, quality, lang string) {
+	go b.runDownloadJob(chatID, statusMsgID, reactMsgID, username, url, formatType, quality, lang)
 }
 
-func (b *BotAPI) runDownloadJob(chatID, statusMsgID int64, username, url, formatType, quality, lang string) {
+func (b *BotAPI) runDownloadJob(chatID, statusMsgID, reactMsgID int64, username, url, formatType, quality, lang string) {
 	ctx, cancel := context.WithTimeout(context.Background(), downloadJobTimeout)
 	defer cancel()
 
 	result, err := DownloadMedia(ctx, b.cfg, MediaRequest{URL: url, FormatType: formatType, Quality: quality})
 	if err != nil {
 		log.Printf("download failed (chat=%d format=%s quality=%s): %v", chatID, formatType, quality, err)
-		b.finishWithError(chatID, statusMsgID, lang, "download_failed")
+		b.finishWithError(chatID, statusMsgID, reactMsgID, lang, "download_failed")
 		return
 	}
 	defer result.Cleanup()
@@ -45,7 +47,7 @@ func (b *BotAPI) runDownloadJob(chatID, statusMsgID int64, username, url, format
 	info, err := os.Stat(result.FilePath)
 	if err != nil {
 		log.Printf("stat downloaded file failed (chat=%d): %v", chatID, err)
-		b.finishWithError(chatID, statusMsgID, lang, "download_failed")
+		b.finishWithError(chatID, statusMsgID, reactMsgID, lang, "download_failed")
 		return
 	}
 	size := info.Size()
@@ -53,6 +55,7 @@ func (b *BotAPI) runDownloadJob(chatID, statusMsgID int64, username, url, format
 	if size >= mtprotoMaxBytes {
 		gb := size / (1024 * 1024 * 1024)
 		b.removeStatus(chatID, statusMsgID)
+		b.signalFailure(chatID, reactMsgID)
 		b.notify(chatID, b.localizer.T(lang, "file_too_large", strconv.FormatInt(gb, 10)))
 		return
 	}
@@ -64,28 +67,48 @@ func (b *BotAPI) runDownloadJob(chatID, statusMsgID int64, username, url, format
 		if size <= botAPIMaxBytes {
 			if fbErr := b.sendLocalMedia(ctx, chatID, formatType, result.FilePath, caption); fbErr != nil {
 				log.Printf("bot api fallback failed (chat=%d): %v", chatID, fbErr)
-				b.reportUploadFailure(chatID, statusMsgID, lang, size)
+				b.reportUploadFailure(chatID, statusMsgID, reactMsgID, lang, size)
 				return
 			}
 		} else {
-			b.reportUploadFailure(chatID, statusMsgID, lang, size)
+			b.reportUploadFailure(chatID, statusMsgID, reactMsgID, lang, size)
 			return
 		}
 	}
 
 	b.removeStatus(chatID, statusMsgID)
+	b.signalSuccess(chatID, reactMsgID)
 	log.Printf("delivered %q to chat %d (%d bytes)", result.Title, chatID, size)
 }
 
-func (b *BotAPI) reportUploadFailure(chatID, statusMsgID int64, lang string, size int64) {
+func (b *BotAPI) reportUploadFailure(chatID, statusMsgID, reactMsgID int64, lang string, size int64) {
 	mb := size / (1024 * 1024)
 	b.removeStatus(chatID, statusMsgID)
+	b.signalFailure(chatID, reactMsgID)
 	b.notify(chatID, b.localizer.T(lang, "upload_failed", strconv.FormatInt(mb, 10)))
 }
 
-func (b *BotAPI) finishWithError(chatID, statusMsgID int64, lang, key string) {
+func (b *BotAPI) finishWithError(chatID, statusMsgID, reactMsgID int64, lang, key string) {
 	b.removeStatus(chatID, statusMsgID)
+	b.signalFailure(chatID, reactMsgID)
 	b.notify(chatID, b.localizer.T(lang, key))
+}
+
+// signalSuccess flips the link-message reaction to ✅ once the file has been
+// delivered. It uses its own context so it survives the job context.
+func (b *BotAPI) signalSuccess(chatID, reactMsgID int64) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	b.setReactionBestEffort(ctx, chatID, reactMsgID, emojiCheck)
+}
+
+// signalFailure flips the link-message reaction to 👎 and sends the documented
+// error sticker. It uses its own context so it survives a cancelled job context.
+func (b *BotAPI) signalFailure(chatID, reactMsgID int64) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	b.setReactionBestEffort(ctx, chatID, reactMsgID, emojiThumbDown)
+	b.sendStickerOrEmoji(ctx, chatID, stickerPackFull, emojiProhibit)
 }
 
 // removeStatus deletes the transient "downloading..." message once the job

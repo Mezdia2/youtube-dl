@@ -70,7 +70,8 @@ func onLanguageSelect(ctx context.Context, bot *BotAPI, callback *CallbackQuery)
 	}
 	DelPendingRequest(userID)
 	return bot.handleMessage(ctx, &Message{
-		Text: pending.Text,
+		MessageID: pending.MessageID,
+		Text:      pending.Text,
 		Chat: Chat{
 			ID:   pending.ChatID,
 			Type: pending.ChatType,
@@ -141,10 +142,14 @@ func onText(ctx context.Context, bot *BotAPI, msg *Message) error {
 	if err != nil {
 		log.Printf("fetch video info failed: %v", err)
 		bot.deleteMessageBestEffort(ctx, msg.Chat.ID, searchStickerID)
+		// Keep the reaction in step with the outcome and show the documented
+		// error sticker before the localized failure text.
+		bot.setReactionBestEffort(ctx, msg.Chat.ID, msg.MessageID, emojiThumbDown)
+		bot.sendStickerOrEmoji(ctx, msg.Chat.ID, stickerPackFull, emojiProhibit)
 		return bot.SendMessage(ctx, msg.Chat.ID, bot.localizer.T(lang, "metadata_failed"), nil)
 	}
 
-	SetSession(msg.Chat.ID, text)
+	SetSession(msg.Chat.ID, text, msg.MessageID)
 	markup := qualityKeyboard(bot.localizer, lang, info.Formats)
 	caption := videoCaption(bot.localizer, lang, info)
 
@@ -258,7 +263,7 @@ func onQualitySelect(ctx context.Context, bot *BotAPI, callback *CallbackQuery) 
 		log.Printf("send download_started failed: %v", err)
 	}
 
-	bot.startDownload(chatID, statusID, username, session.URL, formatType, quality, lang)
+	bot.startDownload(chatID, statusID, session.MessageID, username, session.URL, formatType, quality, lang)
 	log.Printf("download started: format=%s quality=%s chat=%d username=%s",
 		formatType, quality, chatID, username)
 	return nil

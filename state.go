@@ -7,6 +7,7 @@ import (
 
 type Session struct {
 	URL       string
+	MessageID int64
 	CreatedAt time.Time
 }
 
@@ -15,6 +16,7 @@ type PendingRequest struct {
 	ChatID    int64
 	ChatType  string
 	UserID    int64
+	MessageID int64
 	CreatedAt time.Time
 }
 
@@ -30,9 +32,9 @@ var pendingRequests = struct {
 
 const sessionTimeout = 5 * time.Minute
 
-func SetSession(chatID int64, url string) {
+func SetSession(chatID int64, url string, messageID int64) {
 	sessions.Lock()
-	sessions.m[chatID] = &Session{URL: url, CreatedAt: time.Now()}
+	sessions.m[chatID] = &Session{URL: url, MessageID: messageID, CreatedAt: time.Now()}
 	sessions.Unlock()
 }
 
@@ -66,6 +68,7 @@ func SetPendingRequest(userID int64, msg *Message) {
 		ChatID:    msg.Chat.ID,
 		ChatType:  msg.Chat.Type,
 		UserID:    userID,
+		MessageID: msg.MessageID,
 		CreatedAt: time.Now(),
 	}
 	pendingRequests.Unlock()
