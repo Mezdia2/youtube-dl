@@ -15,6 +15,9 @@
   "invalid_selection": "Invalid selection. Please try again.",
   "workflow_failed": "Could not start the download. Please try again.",
   "download_started": "Downloading... Please wait. The file will be sent soon.",
+  "download_failed": "❌ Download failed. Please try again or choose a lower quality.",
+  "file_too_large": "❌ File is larger than %s GB. Please choose a lower quality.",
+  "upload_failed": "❌ Sending the file failed (%s MB). Please try again.",
   "best_quality": "Best",
   "video_button": "Video %s - %s",
   "audio_button": "Audio %s - %s"

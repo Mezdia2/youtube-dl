@@ -64,27 +64,13 @@ type InlineKeyboardButton struct {
 }
 
 func main() {
-	filePath := flag.String("file", "", "path to file to send")
-	chatID := flag.Int64("chat-id", 0, "target telegram chat id")
-	username := flag.String("username", "", "target telegram username (without @)")
-	formatType := flag.String("format", "video", "format: video, audio, document")
-	caption := flag.String("caption", "", "message caption")
 	doSetupSession := flag.Bool("setup-session", false, "run interactive session setup: authenticate via phone number and output TG_SESSION value")
 	sessionPath := flag.String("session", "session.json", "session file path")
 	flag.Parse()
 
-	cfg := LoadConfig()
-
 	if *doSetupSession {
+		cfg := LoadConfig()
 		if err := runSessionSetup(cfg, *sessionPath); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	if *filePath != "" || *chatID != 0 {
-		if err := runUploader(cfg, *filePath, *chatID, *username, *formatType, *caption, *sessionPath); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,47 +18,55 @@ import (
 	"github.com/gotd/td/tg"
 )
 
-func runUploader(cfg *Config, filePath string, chatID int64, username, formatType, caption string, sessionPath string) error {
+// UploadFile sends a local file to a Telegram chat over MTProto using the
+// configured user session. It runs entirely in-process: the session is
+// materialised into a private temp file for the lifetime of the call and
+// removed afterwards, so concurrent uploads never share session state.
+func UploadFile(ctx context.Context, cfg *Config, filePath string, chatID int64, username, formatType, caption string) error {
+	if filePath == "" || chatID == 0 {
+		return fmt.Errorf("file path and chat id are required for sending")
+	}
+
 	appIDInt, err := strconv.Atoi(cfg.TGAppID)
 	if err != nil {
 		return fmt.Errorf("TG_APP_ID must be a valid integer")
 	}
+	if strings.TrimSpace(cfg.TGSession) == "" {
+		return fmt.Errorf("TG_SESSION is required for uploads")
+	}
 
-	if cfg.TGSession != "" {
-		data, err := base64.StdEncoding.DecodeString(cfg.TGSession)
-		if err != nil {
-			return fmt.Errorf("session base64 decode failed: %w", err)
-		}
-		if err := os.WriteFile(sessionPath, data, 0600); err != nil {
-			return fmt.Errorf("session file write failed: %w", err)
-		}
+	data, err := base64.StdEncoding.DecodeString(cfg.TGSession)
+	if err != nil {
+		return fmt.Errorf("session base64 decode failed: %w", err)
+	}
+
+	sessionFile, err := os.CreateTemp("", "tg-session-*.json")
+	if err != nil {
+		return fmt.Errorf("create session file: %w", err)
+	}
+	sessionPath := sessionFile.Name()
+	_ = sessionFile.Close()
+	defer os.Remove(sessionPath)
+
+	if err := os.WriteFile(sessionPath, data, 0600); err != nil {
+		return fmt.Errorf("session file write failed: %w", err)
 	}
 
 	client := telegram.NewClient(appIDInt, cfg.TGAppHash, telegram.Options{
 		SessionStorage: &session.FileStorage{Path: sessionPath},
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
-
 	return client.Run(ctx, func(ctx context.Context) error {
 		me, err := client.Self(ctx)
 		if err != nil {
 			return fmt.Errorf("not authenticated (run --setup-session first): %w", err)
 		}
-
-		fmt.Printf("authenticated as user %d (%s)\n", me.ID, me.FirstName)
-
-		if filePath == "" || chatID == 0 {
-			return fmt.Errorf("--file and --chat-id are required for sending")
-		}
+		log.Printf("uploader authenticated as user %d (%s)", me.ID, me.FirstName)
 
 		peer, err := resolvePeer(ctx, client, chatID, username)
 		if err != nil {
 			return fmt.Errorf("peer resolution failed: %w", err)
 		}
-
-		fmt.Printf("resolved peer for chat_id %d\n", chatID)
 
 		return sendFile(ctx, client, peer, filePath, formatType, caption)
 	})
