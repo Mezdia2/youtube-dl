@@ -11,46 +11,38 @@ import (
 )
 
 type Config struct {
-	BotToken      string
-	GitHubToken   string
-	RepoOwner     string
-	RepoName      string
-	WorkflowFile  string
-	DefaultBranch string
-	TGAppID       string
-	TGAppHash     string
-	TGSession     string
-	TGPhone       string
-	YTCookiesB64  string
-	YTDLPPath     string
-	WebhookDomain string
-	WebhookPath   string
-	WebhookSecret string
-	Port          string
-	MySQLDSN      string
+	BotToken       string
+	TGAppID        string
+	TGAppHash      string
+	TGSession      string
+	TGPhone        string
+	YTCookiesB64   string
+	YTDLPPath      string
+	FFmpegLocation string
+	WebhookDomain  string
+	WebhookPath    string
+	WebhookSecret  string
+	Port           string
+	MySQLDSN       string
 }
 
 func LoadConfig() *Config {
 	_ = loadDotEnv(".env")
 
 	return &Config{
-		BotToken:      os.Getenv("BOT_TOKEN"),
-		GitHubToken:   os.Getenv("GH_TOKEN"),
-		RepoOwner:     os.Getenv("GH_REPO_OWNER"),
-		RepoName:      os.Getenv("GH_REPO_NAME"),
-		WorkflowFile:  envOr("GH_WORKFLOW_FILE", "download.yml"),
-		DefaultBranch: envOr("GH_DEFAULT_BRANCH", "main"),
-		TGAppID:       os.Getenv("TG_APP_ID"),
-		TGAppHash:     os.Getenv("TG_APP_HASH"),
-		TGSession:     os.Getenv("TG_SESSION"),
-		TGPhone:       os.Getenv("TG_PHONE"),
-		YTCookiesB64:  os.Getenv("YT_COOKIES_B64"),
-		YTDLPPath:     os.Getenv("YT_DLP_PATH"),
-		WebhookDomain: os.Getenv("WEBHOOK_DOMAIN"),
-		WebhookPath:   envOr("WEBHOOK_PATH", "/telegram/webhook"),
-		WebhookSecret: os.Getenv("WEBHOOK_SECRET_TOKEN"),
-		Port:          envOr("PORT", "8080"),
-		MySQLDSN:      resolveMySQLDSN(),
+		BotToken:       os.Getenv("BOT_TOKEN"),
+		TGAppID:        os.Getenv("TG_APP_ID"),
+		TGAppHash:      os.Getenv("TG_APP_HASH"),
+		TGSession:      os.Getenv("TG_SESSION"),
+		TGPhone:        os.Getenv("TG_PHONE"),
+		YTCookiesB64:   os.Getenv("YT_COOKIES_B64"),
+		YTDLPPath:      os.Getenv("YT_DLP_PATH"),
+		FFmpegLocation: os.Getenv("FFMPEG_LOCATION"),
+		WebhookDomain:  os.Getenv("WEBHOOK_DOMAIN"),
+		WebhookPath:    envOr("WEBHOOK_PATH", "/telegram/webhook"),
+		WebhookSecret:  os.Getenv("WEBHOOK_SECRET_TOKEN"),
+		Port:           envOr("PORT", "8080"),
+		MySQLDSN:       resolveMySQLDSN(),
 	}
 }
 
@@ -58,17 +50,14 @@ func (c *Config) Validate() error {
 	if c.BotToken == "" {
 		return fmt.Errorf("BOT_TOKEN env is required")
 	}
-	if c.GitHubToken == "" {
-		return fmt.Errorf("GH_TOKEN env is required")
+	if c.TGAppID == "" {
+		return fmt.Errorf("TG_APP_ID env is required")
 	}
-	if c.RepoOwner == "" {
-		return fmt.Errorf("GH_REPO_OWNER env is required")
+	if c.TGAppHash == "" {
+		return fmt.Errorf("TG_APP_HASH env is required")
 	}
-	if c.RepoName == "" {
-		return fmt.Errorf("GH_REPO_NAME env is required")
-	}
-	if c.WorkflowFile == "" {
-		return fmt.Errorf("GH_WORKFLOW_FILE env is required")
+	if c.TGSession == "" {
+		return fmt.Errorf("TG_SESSION env is required (run --setup-session to generate it)")
 	}
 	if c.WebhookDomain == "" {
 		return fmt.Errorf("WEBHOOK_DOMAIN env is required")

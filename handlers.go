@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -244,18 +243,7 @@ func onQualitySelect(ctx context.Context, bot *BotAPI, callback *CallbackQuery) 
 		return bot.SendMessage(ctx, chatID, bot.localizer.T(lang, "invalid_selection"), nil)
 	}
 
-	chatIDStr := fmt.Sprintf("%d", chatID)
 	username := callback.From.Username
-
-	if err := TriggerWorkflow(bot.cfg, session.URL, formatType, quality, chatIDStr, username, lang); err != nil {
-		log.Printf("workflow trigger failed: %v (format=%s quality=%s chatID=%s)",
-			err, formatType, quality, chatIDStr)
-		bot.sendRandomSticker(ctx, chatID,
-			stickerChoice{pack: stickerPackFull, emoji: emojiProhibit},
-			stickerChoice{pack: stickerPackMain, emoji: emojiThumbDown},
-		)
-		return bot.SendMessage(ctx, chatID, bot.localizer.T(lang, "workflow_failed"), nil)
-	}
 
 	DelSession(chatID)
 
@@ -263,8 +251,15 @@ func onQualitySelect(ctx context.Context, bot *BotAPI, callback *CallbackQuery) 
 	// status remains for this step.
 	bot.deleteMessageBestEffort(ctx, chatID, callback.Message.MessageID)
 
-	log.Printf("workflow triggered: format=%s quality=%s chatID=%s username=%s",
-		formatType, quality, chatIDStr, username)
+	// Show a transient status message and hand off to the background pipeline.
+	// Its id lets the job clear the status once the file (or an error) arrives.
+	statusID, err := bot.SendMessageReturning(ctx, chatID, bot.localizer.T(lang, "download_started"), nil)
+	if err != nil {
+		log.Printf("send download_started failed: %v", err)
+	}
 
-	return bot.SendMessage(ctx, chatID, bot.localizer.T(lang, "download_started"), nil)
+	bot.startDownload(chatID, statusID, username, session.URL, formatType, quality, lang)
+	log.Printf("download started: format=%s quality=%s chat=%d username=%s",
+		formatType, quality, chatID, username)
+	return nil
 }

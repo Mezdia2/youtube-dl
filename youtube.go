@@ -162,7 +162,7 @@ func buildInfoArgs(extras ...string) []string {
 		// challenge cannot be solved without a JS runtime. Without this, yt-dlp
 		// aborts with "Requested format is not available" and we get nothing back
 		// even though the preview metadata is available. The actual format
-		// selection happens later in the GitHub Actions downloader.
+		// selection happens later, in the server-side downloader.
 		"--ignore-no-formats-error",
 		"--extractor-retries", "3",
 		"--retry-sleep", "extractor:3",
